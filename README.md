@@ -1,5 +1,9 @@
 # 🃏 Cozy Call Break Scorekeeper
 
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-Streamlit-FF4B4B?style=for-the-badge&logo=streamlit)](https://callbreak-sb.streamlit.app/)
+
+> 🌐 **Live Application**: [https://callbreak-sb.streamlit.app/](https://callbreak-sb.streamlit.app/)
+
 A beautiful, cozy, fast, mobile-friendly digital scorekeeper for the **Call Break** card game built with **Python & Streamlit**.
 
 Designed to replace paper scorekeeping during game night — with a warm card-table aesthetic (forest green felt, dark mahogany wood, cream cards, and muted gold accents).
