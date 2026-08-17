@@ -1,0 +1,15 @@
+# Python & Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Environment & IDE
+.venv/
+venv/
+ENV/
+.vscode/
+.idea/
+
+# App Persistence (Local game state)
+callbreak_game.json
