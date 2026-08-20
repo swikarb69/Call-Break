@@ -181,7 +181,7 @@ def render_setup_screen():
             </div>
         """, unsafe_allow_html=True)
         
-    default_names = ["Swikar", "Rahul", "Aman", "Aryan", "Sohan"]
+    default_names = ["Swikar", "Anwar", "Dipesh", "Mukund", "Rohan"]
     player_names = []
     
     cols = st.columns(2 if num_players > 2 else num_players)
