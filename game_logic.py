@@ -47,16 +47,42 @@ def format_score(score: float) -> str:
         return f"{val}"
 
 
+# Centralized game configuration by player count
+GAME_CONFIGS = {
+    2: {
+        "deck_size": 52,
+        "removed_cards": [],
+        "cards_per_player": 13,
+        "total_tricks": 13,
+    },
+    3: {
+        "deck_size": 52,
+        "removed_cards": [],
+        "cards_per_player": 13,
+        "total_tricks": 13,
+    },
+    4: {
+        "deck_size": 52,
+        "removed_cards": [],
+        "cards_per_player": 13,
+        "total_tricks": 13,
+    },
+    5: {
+        "deck_size": 50,
+        "removed_cards": ["2♥", "2♦"],
+        "cards_per_player": 10,
+        "total_tricks": 10,
+    }
+}
+
+
 def get_available_tricks(num_players: int) -> int:
     """
     Returns total available tricks per hand based on player count.
-    - 4 players: 52 cards / 4 = 13 tricks
-    - 5 players: 48 cards (2♥ & 2♦ removed) / 5 = 9 tricks (45 cards dealt)
-    - 2 players: 13 tricks
-    - 3 players: 13 tricks
     """
-    if num_players == 5:
-        return 9
+    config = GAME_CONFIGS.get(num_players)
+    if config:
+        return config["total_tricks"]
     return 13
 
 
@@ -85,7 +111,7 @@ def validate_player_names(names: List[str]) -> Tuple[bool, str]:
 def validate_calls(calls: Dict[str, int], num_players: int) -> Tuple[bool, str]:
     """
     Validates player calls.
-    - Minimum call: 1
+    - Minimum call: 0
     - Maximum call: total available tricks for player count.
     """
     max_tricks = get_available_tricks(num_players)
@@ -93,8 +119,8 @@ def validate_calls(calls: Dict[str, int], num_players: int) -> Tuple[bool, str]:
     for player_id, call in calls.items():
         if call is None or not isinstance(call, int):
             return False, "All players must enter a valid call number."
-        if call < 1:
-            return False, "Minimum call is 1 trick."
+        if call < 0:
+            return False, "Minimum call is 0 tricks."
         if call > max_tricks:
             return False, f"Maximum call cannot exceed {max_tricks} tricks."
             

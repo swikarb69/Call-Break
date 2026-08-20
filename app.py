@@ -1,11 +1,11 @@
 """
 app.py
 Main Streamlit Application for Cozy Call Break Scorekeeper.
+Implements the 4-player and 5-player Call Break rules and provides a premium cozy digital card table UI.
 """
 
 import streamlit as st
-import pandas as pd
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 from game_logic import (
     calculate_score,
@@ -17,7 +17,8 @@ from game_logic import (
     calculate_round_scores,
     calculate_totals,
     get_leaderboard,
-    format_share_summary
+    format_share_summary,
+    GAME_CONFIGS
 )
 import storage
 from styles import inject_cozy_css
@@ -38,29 +39,61 @@ def init_session_state():
     """Initializes session state and loads saved game if present."""
     if "game" not in st.session_state:
         saved_game = storage.load_game()
+        
+        # Upgrade old save states to the new unified state key
+        if saved_game and "state" not in saved_game:
+            if saved_game.get("status") == "finished":
+                saved_game["state"] = "GAME_COMPLETE"
+            else:
+                stage = saved_game.get("round_stage", "bidding")
+                if stage == "bidding":
+                    saved_game["state"] = "CALL_ENTRY"
+                elif stage == "playing":
+                    saved_game["state"] = "PLAYING"
+                elif stage == "scoring":
+                    saved_game["state"] = "TRICK_ENTRY"
+                else:
+                    saved_game["state"] = "CALL_ENTRY"
+            saved_game["current_calls"] = saved_game.get("current_calls", {})
+            saved_game["current_tricks"] = saved_game.get("current_tricks", {})
+            
         st.session_state.game = saved_game
         
     if "confirm_new_game" not in st.session_state:
         st.session_state.confirm_new_game = False
         
-    if "editing_round_idx" not in st.session_state:
-        st.session_state.editing_round_idx = None
+    if "confirm_undo" not in st.session_state:
+        st.session_state.confirm_undo = False
 
 
 def save_game_state():
     """Helper to save active game state to JSON storage."""
     if st.session_state.game:
-        storage.save_game(st.session_state.game)
+        # Keep old keys populated for backward compatibility with older loads if needed
+        game = st.session_state.game
+        if game.get("state") == "GAME_COMPLETE":
+            game["status"] = "finished"
+        else:
+            game["status"] = "active"
+            
+        state_map = {
+            "CALL_ENTRY": "bidding",
+            "PLAYING": "playing",
+            "TRICK_ENTRY": "scoring",
+            "ROUND_COMPLETE": "scoring" # Maps to scoring stage in legacy code
+        }
+        game["round_stage"] = state_map.get(game.get("state"), "bidding")
+        storage.save_game(game)
 
 
 # ==========================================
-# 1. LANDING & PLAYER SETUP SCREEN
+# 1. SETUP & RECOVERY SCREEN
 # ==========================================
 def render_setup_screen():
     st.markdown("""
         <div class="hero-box">
             <div class="suit-symbols">♠ ♥ ♦ ♣</div>
-            <h1 class="cozy-title">CALL BREAK</h1>
+            <h1 class="cozy-title" style="text-align: center;">CALL BREAK</h1>
             <p class="cozy-subtitle">No more paper. Just play.</p>
         </div>
     """, unsafe_allow_html=True)
@@ -68,120 +101,170 @@ def render_setup_screen():
     # Check for saved game
     if storage.has_saved_game():
         saved = storage.load_game()
-        if saved and saved.get("status") == "active":
-            st.info(f" Saved game in progress ({len(saved.get('players', []))} players, Round {saved.get('current_round', 1)}).")
-            col_cont, col_discard = st.columns(2)
-            with col_cont:
-                if st.button("Continue Saved Game ⏯️", use_container_width=True):
-                    st.session_state.game = saved
-                    st.rerun()
-            with col_discard:
-                if st.button("Discard & Start New 🗑️", type="secondary", use_container_width=True):
-                    storage.clear_game()
-                    st.session_state.game = None
-                    st.rerun()
-            st.divider()
-
-    with st.container():
-        st.markdown('<div class="cozy-card">', unsafe_allow_html=True)
-        st.subheader("Who's playing?")
-        
-        num_players = st.radio(
-            "Select Number of Players",
-            options=[2, 3, 4, 5],
-            index=2, # Default 4 players
-            format_func=lambda x: f"{x} Players",
-            horizontal=True
-        )
-        
-        # 5 Player Mode Banner
-        if num_players == 5:
-            st.markdown("""
-                <div class="five-player-banner">
-                    <span style="font-size: 1.6rem;">🃏</span>
-                    <div>
-                        <strong>5 Player Mode Active</strong><br/>
-                        <span style="font-size: 0.9rem;">2♥ and 2♦ are automatically removed from the deck (48 cards total, 9 tricks per round).</span>
-                    </div>
+        if saved:
+            # Upgrade state of loaded game if necessary
+            if "state" not in saved:
+                if saved.get("status") == "finished":
+                    saved["state"] = "GAME_COMPLETE"
+                else:
+                    stage = saved.get("round_stage", "bidding")
+                    if stage == "bidding":
+                        saved["state"] = "CALL_ENTRY"
+                    elif stage == "playing":
+                        saved["state"] = "PLAYING"
+                    elif stage == "scoring":
+                        saved["state"] = "TRICK_ENTRY"
+                    else:
+                        saved["state"] = "CALL_ENTRY"
+            
+            num_r = len(saved.get("rounds", []))
+            st.markdown(f"""
+                <div class="cozy-card" style="text-align: center; border-color: #e5c158;">
+                    <h3 style="margin-top: 0; color: #e5c158;">Welcome back.</h3>
+                    <p style="color: #f4ebd0; font-size: 1.1rem; margin-bottom: 20px;">
+                        You have an active game in progress with <strong>{len(saved.get('players', []))} players</strong> (played {num_r} round{"s" if num_r != 1 else ""}).
+                    </p>
                 </div>
             """, unsafe_allow_html=True)
             
-        default_names = ["Swikar", "Anwar", "Dipesh", "Mukund", "Rohan"]
-        player_names = []
+            col_cont, col_discard = st.columns(2)
+            with col_cont:
+                if st.button("Continue Game ⏯️", use_container_width=True):
+                    st.session_state.game = saved
+                    st.rerun()
+            with col_discard:
+                if st.button("Start New Game 🗑️", type="secondary", use_container_width=True):
+                    storage.clear_game()
+                    st.session_state.game = None
+                    st.rerun()
+            st.markdown("<br/>", unsafe_allow_html=True)
+            return
+
+    # Render setup form
+    st.markdown('<div class="cozy-card">', unsafe_allow_html=True)
+    st.subheader("Who's playing?")
+    
+    num_players = st.radio(
+        "Select Number of Players",
+        options=[2, 3, 4, 5],
+        index=2, # Default 4 players
+        format_func=lambda x: f"{x} Players",
+        horizontal=True
+    )
+    
+    # Game rule overview banner based on player count
+    config = GAME_CONFIGS.get(num_players, GAME_CONFIGS[4])
+    if num_players == 5:
+        st.markdown(f"""
+            <div class="five-player-banner">
+                <span style="font-size: 1.6rem;">🃏</span>
+                <div>
+                    <strong>5-Player Game Configured</strong><br/>
+                    <span style="font-size: 0.9rem;">
+                        Deck size: 50 cards (<strong>2♥ and 2♦ are removed automatically</strong>).<br/>
+                        Each player receives 10 cards, giving <strong>10 total tricks</strong> per round.
+                    </span>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.markdown(f"""
+            <div class="five-player-banner" style="background: linear-gradient(135deg, #10281b 0%, #0d2117 100%);">
+                <span style="font-size: 1.6rem;">🃏</span>
+                <div>
+                    <strong>{num_players}-Player Game Configured</strong><br/>
+                    <span style="font-size: 0.9rem;">
+                        Deck size: 52 cards.<br/>
+                        Each player plays for <strong>{config['total_tricks']} tricks</strong> per round.
+                    </span>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
         
-        cols = st.columns(2 if num_players > 2 else num_players)
-        for i in range(num_players):
-            col = cols[i % len(cols)]
-            with col:
-                name = st.text_input(
-                    f"Player {i + 1}",
-                    value=default_names[i] if i < len(default_names) else f"Player {i + 1}",
-                    key=f"setup_player_{i}"
-                )
-                player_names.append(name)
-                
-        st.markdown("<br/>", unsafe_allow_html=True)
-        
-        if st.button("Start Game 🃏", use_container_width=True):
-            valid, err_msg = validate_player_names(player_names)
-            if not valid:
-                st.error(err_msg)
-            else:
-                players = [{"id": f"p_{i+1}", "name": name.strip()} for i, name in enumerate(player_names)]
-                new_game = {
-                    "num_players": num_players,
-                    "players": players,
-                    "rounds": [],
-                    "current_round": 1,
-                    "round_stage": "bidding",
-                    "current_calls": {},
-                    "current_tricks": {},
-                    "status": "active"
-                }
-                st.session_state.game = new_game
-                save_game_state()
-                st.rerun()
-                
-        st.markdown('</div>', unsafe_allow_html=True)
+    default_names = ["Swikar", "Rahul", "Aman", "Aryan", "Sohan"]
+    player_names = []
+    
+    cols = st.columns(2 if num_players > 2 else num_players)
+    for i in range(num_players):
+        col = cols[i % len(cols)]
+        with col:
+            name = st.text_input(
+                f"Player {i + 1} Name",
+                value=default_names[i] if i < len(default_names) else f"Player {i + 1}",
+                key=f"setup_player_{i}"
+            )
+            player_names.append(name)
+            
+    st.markdown("<br/>", unsafe_allow_html=True)
+    
+    if st.button("Start Game 🃏", use_container_width=True):
+        valid, err_msg = validate_player_names(player_names)
+        if not valid:
+            st.error(err_msg)
+        else:
+            players = [{"id": f"p_{i+1}", "name": name.strip()} for i, name in enumerate(player_names)]
+            new_game = {
+                "num_players": num_players,
+                "players": players,
+                "rounds": [],
+                "current_round": 1,
+                "state": "CALL_ENTRY",
+                "current_calls": {},
+                "current_tricks": {}
+            }
+            st.session_state.game = new_game
+            save_game_state()
+            st.rerun()
+            
+    st.markdown('</div>', unsafe_allow_html=True)
 
 
 # ==========================================
-# 2. MAIN GAME INTERFACE
+# 2. MAIN GAME SCREEN
 # ==========================================
 def render_game_interface():
     game = st.session_state.game
     players = game["players"]
     num_players = game["num_players"]
     rounds = game["rounds"]
+    state = game.get("state", "CALL_ENTRY")
+    
+    # Calculate totals and standings
     totals = calculate_totals(players, rounds)
     leaderboard = get_leaderboard(players, totals)
     
-    # Top Header Bar
-    top_col1, top_col2 = st.columns([3, 1])
-    with top_col1:
+    # Top Header Panel
+    header_col1, header_col2 = st.columns([3, 1])
+    with header_col1:
         st.markdown(f"<h2 style='margin:0;'>Round {game['current_round']}</h2>", unsafe_allow_html=True)
-        st.caption(f"{num_players} Players • Call Break")
-    with top_col2:
-        if st.button("New Game", type="secondary", key="top_new_game"):
+        # Show Current Leader info
+        if rounds and leaderboard:
+            leader_name = leaderboard[0]["name"]
+            leader_score = leaderboard[0]["total_score"]
+            st.markdown(f"<span style='color: #bfa882; font-size:0.9rem;'>👑 Leading: <strong>{leader_name}</strong> ({format_score(leader_score)} pts)</span>", unsafe_allow_html=True)
+        else:
+            st.caption(f"{num_players} Players • Call Break")
+    with header_col2:
+        if st.button("New Game", type="secondary", key="btn_header_new_game"):
             st.session_state.confirm_new_game = True
 
-    # New Game Confirmation Prompt
+    # New Game Confirmation
     if st.session_state.confirm_new_game:
-        st.warning("⚠️ You already have a game in progress. Starting a new game will replace it.")
+        st.warning("⚠️ Are you sure you want to start a new game? Current progress will be lost.")
         c1, c2 = st.columns(2)
         with c1:
-            if st.button("Cancel", type="secondary", use_container_width=True):
+            if st.button("Keep Playing", type="secondary", use_container_width=True):
                 st.session_state.confirm_new_game = False
                 st.rerun()
         with c2:
-            if st.button("Confirm & Start New", use_container_width=True):
+            if st.button("Discard & Start New", use_container_width=True):
                 storage.clear_game()
                 st.session_state.game = None
                 st.session_state.confirm_new_game = False
                 st.rerun()
         st.divider()
 
-    # Leaderboard Quick Strip Cards
+    # Standing Strip
     st.markdown("<div style='margin-bottom: 12px;'>", unsafe_allow_html=True)
     p_cols = st.columns(len(players))
     for idx, p in enumerate(players):
@@ -190,8 +273,8 @@ def render_game_interface():
         score = totals.get(pid, 0.0)
         score_str = format_score(score)
         
-        # Check if leader
-        is_leader = (leaderboard[0]["id"] == pid and len(rounds) > 0 and leaderboard[0]["total_score"] > 0)
+        # Highlight Leader
+        is_leader = (leaderboard[0]["id"] == pid and len(rounds) > 0)
         crown = "👑 " if is_leader else ""
         card_class = "player-score-card is-leader" if is_leader else "player-score-card"
         
@@ -204,7 +287,7 @@ def render_game_interface():
             """, unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # Main App Navigation Tabs
+    # Core Navigation Tabs
     tab_play, tab_score, tab_history, tab_rules, tab_settings = st.tabs([
         "🎴 Play Round", "📊 Scoreboard", "📜 History & Edit", "ℹ️ Rules", "⚙️ Settings"
     ])
@@ -226,35 +309,44 @@ def render_game_interface():
 
 
 # ==========================================
-# PLAY ROUND TAB
+# PLAY ROUND TAB (STATE MACHINE IMPLEMENTATION)
 # ==========================================
 def render_play_round_tab():
     game = st.session_state.game
     players = game["players"]
     num_players = game["num_players"]
     max_tricks = get_available_tricks(num_players)
-    stage = game.get("round_stage", "bidding")
+    state = game.get("state", "CALL_ENTRY")
     
     st.markdown('<div class="cozy-card">', unsafe_allow_html=True)
     
     # ------------------------------------------
-    # STAGE 1: BIDDING (Enter Calls)
+    # STATE 1: CALL_ENTRY (Bidding Phase)
     # ------------------------------------------
-    if stage == "bidding":
-        st.subheader(f"Round {game['current_round']} — Enter Calls")
-        st.caption("Enter everyone's call before playing.")
+    if state == "CALL_ENTRY":
+        st.subheader("Bidding Phase")
+        st.markdown(f"**Round {game['current_round']} — Make your calls**")
+        st.caption(f"Players predict how many tricks they will win (0–{max_tricks} tricks).")
         
         calls = {}
-        cols = st.columns(2 if num_players > 2 else num_players)
+        cols = st.columns(2)
         for i, p in enumerate(players):
-            col = cols[i % len(cols)]
+            col = cols[i % 2]
             with col:
-                st.markdown(f"**{p['name'].upper()}**")
+                st.markdown(f"""
+                    <div style="background: #142e22; border: 1px solid rgba(212, 175, 55, 0.25); border-radius: 12px; padding: 12px; text-align: center; margin-bottom: 8px;">
+                        <div style="font-family: 'Cinzel', serif; font-size: 1.1rem; color: #e5c158; font-weight: 700; margin-bottom: 2px;">{p['name'].upper()}</div>
+                        <div style="font-size: 0.85rem; color: #bfa882;">Enter bid</div>
+                    </div>
+                """, unsafe_allow_html=True)
+                
+                # Default call value to 2, or previously entered temp value
+                default_val = game.get("current_calls", {}).get(p["id"], 2)
                 call_val = st.number_input(
                     f"Call for {p['name']}",
-                    min_value=1,
+                    min_value=0,
                     max_value=max_tricks,
-                    value=game.get("current_calls", {}).get(p["id"], 3),
+                    value=default_val,
                     step=1,
                     key=f"call_input_{p['id']}_{game['current_round']}",
                     label_visibility="collapsed"
@@ -262,22 +354,23 @@ def render_play_round_tab():
                 calls[p["id"]] = int(call_val)
                 
         st.markdown("<br/>", unsafe_allow_html=True)
-        if st.button("Start Round ♠️", use_container_width=True):
+        if st.button("Lock Calls & Start Round ♠️", use_container_width=True):
             valid, err = validate_calls(calls, num_players)
             if not valid:
                 st.error(err)
             else:
                 game["current_calls"] = calls
-                game["round_stage"] = "playing"
+                game["state"] = "PLAYING"
                 save_game_state()
                 st.rerun()
 
     # ------------------------------------------
-    # STAGE 2: PLAYING ROUND
+    # STATE 2: PLAYING (Round Active)
     # ------------------------------------------
-    elif stage == "playing":
-        st.subheader(f"Round {game['current_round']} — In Progress")
-        st.caption("Good luck. Play your cards!")
+    elif state == "PLAYING":
+        st.subheader("Playing Phase")
+        st.markdown(f"**Round {game['current_round']} is active!**")
+        st.caption("Play cards matching the suits, trumping with Spades when possible.")
         
         st.markdown("<div style='margin: 15px 0;'>", unsafe_allow_html=True)
         call_cols = st.columns(len(players))
@@ -287,58 +380,64 @@ def render_play_round_tab():
             with call_cols[idx]:
                 st.markdown(f"""
                     <div style="background: #10241b; border: 1px solid #d4af37; border-radius: 12px; padding: 12px; text-align: center;">
-                        <div style="color: #bfa882; font-weight: 600; font-size: 0.9rem;">{p['name']}</div>
-                        <div style="color: #e5c158; font-size: 1.5rem; font-weight: 800; margin-top: 4px;">Call: {call_val}</div>
+                        <div style="color: #bfa882; font-weight: 600; font-size: 0.85rem; text-transform: uppercase;">{p['name']}</div>
+                        <div style="color: #e5c158; font-size: 1.4rem; font-weight: 800; margin-top: 4px;">Call: {call_val}</div>
                     </div>
                 """, unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
         
-        if st.button("Finish Round / Enter Tricks 🏆", use_container_width=True):
-            game["round_stage"] = "scoring"
+        if st.button("Finish Playing / Enter Tricks Won →", use_container_width=True):
+            game["state"] = "TRICK_ENTRY"
             save_game_state()
             st.rerun()
 
     # ------------------------------------------
-    # STAGE 3: SCORING (Enter Tricks Won)
+    # STATE 3: TRICK_ENTRY (Scoring Phase)
     # ------------------------------------------
-    elif stage == "scoring":
-        st.subheader(f"Round {game['current_round']} — Enter Tricks Won")
-        st.caption("How many tricks did everyone win?")
+    elif state == "TRICK_ENTRY":
+        st.subheader("Scoring Phase")
+        st.markdown(f"**Round {game['current_round']} — Enter Tricks Won**")
+        st.caption(f"Enter the exact number of tricks won by each player. Total must sum to {max_tricks}.")
         
         tricks = {}
         preview_scores = {}
         calls = game.get("current_calls", {})
         
-        cols = st.columns(2 if num_players > 2 else num_players)
+        cols = st.columns(2)
         for i, p in enumerate(players):
             pid = p["id"]
-            player_call = calls.get(pid, 3)
-            col = cols[i % len(cols)]
+            player_call = calls.get(pid, 2)
+            col = cols[i % 2]
             with col:
-                st.markdown(f"**{p['name'].upper()}**")
-                st.caption(f"Called: {player_call}")
+                st.markdown(f"""
+                    <div style="background: #142e22; border: 1px solid rgba(212, 175, 55, 0.25); border-radius: 12px; padding: 12px; text-align: center; margin-bottom: 8px;">
+                        <div style="font-family: 'Cinzel', serif; font-size: 1.1rem; color: #e5c158; font-weight: 700; margin-bottom: 2px;">{p['name'].upper()}</div>
+                        <div style="font-size: 0.85rem; color: #bfa882;">Called: <strong>{player_call}</strong> tricks</div>
+                    </div>
+                """, unsafe_allow_html=True)
                 
+                # Default tricks value to call amount, or previously entered temp value
+                default_tricks_won = game.get("current_tricks", {}).get(pid, player_call)
                 tricks_won = st.number_input(
                     f"Tricks won by {p['name']}",
                     min_value=0,
                     max_value=max_tricks,
-                    value=game.get("current_tricks", {}).get(pid, player_call),
+                    value=default_tricks_won,
                     step=1,
                     key=f"trick_input_{pid}_{game['current_round']}",
                     label_visibility="collapsed"
                 )
                 tricks[pid] = int(tricks_won)
                 
-                # Real-time live score preview card
+                # Real-time score preview
                 score_preview = calculate_score(player_call, int(tricks_won))
-                preview_scores[pid] = score_preview
                 score_formatted = format_score(score_preview)
                 color = "#5cdb95" if score_preview > 0 else ("#ff6b6b" if score_preview < 0 else "#f4ebd0")
                 
                 st.markdown(f"""
-                    <div style="background: #11261c; border-radius: 8px; padding: 6px 10px; text-align: center; margin-top: 6px;">
-                        <span style="font-size: 0.85rem; color: #bfa882;">Score: </span>
-                        <strong style="font-size: 1.1rem; color: {color};">{score_formatted}</strong>
+                    <div style="background: #10241b; border: 1px solid rgba(212,175,55,0.15); border-radius: 8px; padding: 6px; text-align: center; margin-top: 4px; margin-bottom: 12px;">
+                        <span style="font-size: 0.85rem; color: #bfa882;">Estimated Score: </span>
+                        <strong style="font-size: 1.2rem; color: {color};">{score_formatted}</strong>
                     </div>
                 """, unsafe_allow_html=True)
                 
@@ -346,12 +445,15 @@ def render_play_round_tab():
         sum_tricks = sum(tricks.values())
         diff = max_tricks - sum_tricks
         if diff == 0:
-            st.success(f"✓ Total tricks sum: {sum_tricks}/{max_tricks}")
+            st.success(f"✓ Total tricks sum: {sum_tricks} / {max_tricks}")
         else:
-            st.warning(f"⚠️ Total tricks sum is {sum_tricks}/{max_tricks} ({'+' if diff < 0 else ''}{-diff} off)")
+            st.warning(f"⚠️ Total tricks sum is {sum_tricks} / {max_tricks} ({'+' if diff < 0 else ''}{-diff} off)")
 
+        # Save inputs dynamically in case of refresh
+        game["current_tricks"] = tricks
+        
         st.markdown("<br/>", unsafe_allow_html=True)
-        if st.button("Finish Round ✓", use_container_width=True):
+        if st.button("Calculate & Complete Round ✓", use_container_width=True):
             valid, err = validate_tricks(tricks, num_players)
             if not valid:
                 st.error(err)
@@ -362,13 +464,54 @@ def render_play_round_tab():
                     "scores": round_scores
                 }
                 game["rounds"].append(new_round_entry)
-                game["current_round"] += 1
-                game["round_stage"] = "bidding"
-                game["current_calls"] = {}
-                game["current_tricks"] = {}
+                game["state"] = "ROUND_COMPLETE"
                 save_game_state()
                 st.rerun()
+
+    # ------------------------------------------
+    # STATE 4: ROUND_COMPLETE (Summary Screen)
+    # ------------------------------------------
+    elif state == "ROUND_COMPLETE":
+        st.subheader(f"Round {game['current_round']} Complete!")
+        st.markdown("### Round Summary Results")
+        
+        last_round = game["rounds"][-1]
+        scores_by_pid = {s["player_id"]: s for s in last_round.get("scores", [])}
+        
+        cols = st.columns(len(players))
+        for idx, p in enumerate(players):
+            pid = p["id"]
+            s_entry = scores_by_pid.get(pid, {})
+            score_val = s_entry.get("score", 0.0)
+            formatted = format_score(score_val)
+            color = "#5cdb95" if score_val > 0 else ("#ff6b6b" if score_val < 0 else "#f4ebd0")
+            
+            with cols[idx]:
+                st.markdown(f"""
+                    <div style="background: #11261c; border: 1px solid rgba(212,175,55,0.2); border-radius: 12px; padding: 14px; text-align: center;">
+                        <strong style="font-size: 1.05rem; color: #e5c158;">{p['name']}</strong><br/>
+                        <span style="font-size: 0.8rem; color: #bfa882;">Call: {s_entry.get('call')} | Won: {s_entry.get('tricks_won')}</span><br/>
+                        <strong style="font-size: 1.4rem; color: {color};">{formatted}</strong>
+                    </div>
+                """, unsafe_allow_html=True)
                 
+        st.markdown("<br/>", unsafe_allow_html=True)
+        
+        # Primary Action
+        if st.button(f"Start Round {game['current_round'] + 1} ⏭️", use_container_width=True):
+            game["current_round"] += 1
+            game["state"] = "CALL_ENTRY"
+            game["current_calls"] = {}
+            game["current_tricks"] = {}
+            save_game_state()
+            st.rerun()
+            
+        # Secondary Action
+        if st.button("Complete Game & View Standings 🎉", type="secondary", use_container_width=True):
+            game["state"] = "GAME_COMPLETE"
+            save_game_state()
+            st.rerun()
+            
     st.markdown('</div>', unsafe_allow_html=True)
 
 
@@ -408,23 +551,25 @@ def render_scoreboard_tab(players, rounds, totals, leaderboard):
     for p in players:
         t_val = totals.get(p["id"], 0.0)
         formatted_t = format_score(t_val)
-        total_cells.append(f"<td>{formatted_t}</td>")
+        total_cells.append(f"<td><strong>{formatted_t}</strong></td>")
         
     totals_html = f"<tr>{''.join(total_cells)}</tr>"
     
     table_html = f"""
-        <table class="cozy-table">
-            <thead>
-                <tr>
-                    <th>ROUND</th>
-                    {headers_html}
-                </tr>
-            </thead>
-            <tbody>
-                {rows_html}
-                {totals_html}
-            </tbody>
-        </table>
+        <div class="cozy-table-container">
+            <table class="cozy-table">
+                <thead>
+                    <tr>
+                        <th>ROUND</th>
+                        {headers_html}
+                    </tr>
+                </thead>
+                <tbody>
+                    {rows_html}
+                    {totals_html}
+                </tbody>
+            </table>
+        </div>
     """
     
     st.markdown(table_html, unsafe_allow_html=True)
@@ -460,9 +605,9 @@ def render_history_tab(players, rounds):
         if st.button("Undo Last Round ↩️", type="secondary", use_container_width=True):
             st.session_state.confirm_undo = True
             
-    if st.session_state.get("confirm_undo", False):
+    if st.session_state.confirm_undo:
         last_r_num = rounds[-1]["round_number"]
-        st.warning(f"Are you sure you want to remove Round {last_r_num}?")
+        st.warning(f"⚠️ Are you sure you want to remove Round {last_r_num}? This cannot be undone.")
         c1, c2 = st.columns(2)
         with c1:
             if st.button("Cancel Undo", type="secondary", use_container_width=True):
@@ -472,7 +617,7 @@ def render_history_tab(players, rounds):
             if st.button("Confirm Undo", use_container_width=True):
                 rounds.pop()
                 game["current_round"] = len(rounds) + 1
-                game["round_stage"] = "bidding"
+                game["state"] = "CALL_ENTRY"
                 game["current_calls"] = {}
                 game["current_tricks"] = {}
                 st.session_state.confirm_undo = False
@@ -518,25 +663,25 @@ def render_history_tab(players, rounds):
                 new_calls = {}
                 new_tricks = {}
                 
-                form_cols = st.columns(2 if num_players > 2 else num_players)
+                form_cols = st.columns(2)
                 for i, p in enumerate(players):
                     pid = p["id"]
                     s_entry = scores_by_pid.get(pid, {})
-                    fc = form_cols[i % len(form_cols)]
+                    fc = form_cols[i % 2]
                     with fc:
                         st.markdown(f"*{p['name']}*")
                         c_val = st.number_input(
                             f"Call {p['name']}",
-                            min_value=1,
+                            min_value=0,
                             max_value=max_tricks,
-                            value=s_entry.get("call", 3),
+                            value=s_entry.get("call", 2),
                             key=f"edit_c_{r_num}_{pid}"
                         )
                         t_val = st.number_input(
                             f"Tricks {p['name']}",
                             min_value=0,
                             max_value=max_tricks,
-                            value=s_entry.get("tricks_won", s_entry.get("call", 3)),
+                            value=s_entry.get("tricks_won", s_entry.get("call", 2)),
                             key=f"edit_t_{r_num}_{pid}"
                         )
                         new_calls[pid] = int(c_val)
@@ -566,55 +711,59 @@ def render_rules_tab(num_players: int):
     st.subheader("Call Break Rules & Scoring")
     
     st.markdown("""
-    ### 🎴 Overview
-    Call Break is a trick-taking card game played with a standard 52-card deck. Spades are always the trump suit.
-
+    ### 🎴 Game Overview
+    Call Break is a tactical trick-taking game played with a standard deck. Spades are permanently the trump suit.
+    """)
+    
+    if num_players == 5:
+        st.markdown("""
+        > 🃏 **5-Player Special Rule**
+        > - Exactly **2♥ (Two of Hearts)** and **2♦ (Two of Diamonds)** are removed from the deck.
+        > - Remaining deck size: **50 cards**.
+        > - Each player receives **10 cards** per hand.
+        > - Total tricks per round: **10 tricks**.
+        """)
+    else:
+        st.markdown("""
+        > 🃏 **Standard 4-Player Rule**
+        > - Standard deck size: **52 cards**.
+        > - Each player receives **13 cards** per hand.
+        > - Total tricks per round: **13 tricks**.
+        """)
+        
+    st.markdown("""
     ---
 
-    ### 🗣️ 1. Calling
-    Before playing a round, each player bids (calls) the number of tricks they predict they will win.
-    - Minimum call: **1 trick**.
+    ### 🗣️ 1. Calling / Bidding
+    Before each round, players predict how many tricks they will win.
+    - Call range: **0 to Max Tricks** (10 in 5-player, 13 in 4-player).
     
     ---
 
-    ### 🎯 2. Scoring Rules
+    ### 🎯 2. Scoring Calculations
 
     #### ✅ Successful Call (Tricks Won ≥ Call)
-    If you win at least as many tricks as your call, you get points equal to your call **plus 0.1 for every extra trick**.
-
+    If you win at least your bid amount, you receive points equal to your call **plus 0.1 points for each extra trick won**.
+    
     $$\\text{Score} = \\text{Call} + (\\text{Tricks Won} - \\text{Call}) \\times 0.1$$
 
     *Examples:*
     - Call 2, Won 2 → **+2.0 points**
     - Call 3, Won 4 → **+3.1 points**
     - Call 4, Won 6 → **+4.2 points**
+    - Call 0, Won 2 → **+0.2 points**
 
     #### ❌ Failed Call (Tricks Won < Call)
-    If you fail to win your called number of tricks, you lose points equal to your call.
+    If you win fewer tricks than your bid, you lose points equal to your call.
 
     $$\\text{Score} = -\\text{Call}$$
 
     *Examples:*
     - Call 3, Won 2 → **-3.0 points**
     - Call 5, Won 3 → **-5.0 points**
-
-    ---
-    """, unsafe_allow_html=True)
     
-    if num_players == 5:
-        st.markdown("""
-        ### 🃏 5 Player Deck Rule
-        When playing with 5 players:
-        - **2♥ (Two of Hearts)** and **2♦ (Two of Diamonds)** are automatically removed from the deck.
-        - Total cards in deck: **48 cards**.
-        - Each player receives **9 cards** per hand (45 cards total dealt).
-        - Maximum tricks per round: **9 tricks**.
-        """)
-    else:
-        st.markdown("""
-        ### 🃏 4 Player Deck Rule
-        Standard 52-card deck. Each player receives 13 cards per hand. Maximum tricks per round: 13 tricks.
-        """)
+    ---
+    """)
 
 
 # ==========================================
@@ -635,7 +784,7 @@ def render_settings_tab(players, totals, rounds):
                     n_val = st.text_input(f"Player {i+1} Name", value=p["name"], key=f"rename_p_{p['id']}")
                     new_names.append(n_val)
                     
-            if st.form_submit_button("Update Player Names ✏️"):
+            if st.form_submit_button("Update Player Names"):
                 valid, err = validate_player_names(new_names)
                 if not valid:
                     st.error(err)
@@ -651,7 +800,6 @@ def render_settings_tab(players, totals, rounds):
     # Share Results Section
     st.markdown("### 📤 Share Game Standings")
     summary_text = format_share_summary(players, totals, rounds)
-    
     st.text_area("Shareable Score Text", value=summary_text, height=180)
     st.caption("Copy the text above to paste into WhatsApp, Telegram, or SMS.")
     
@@ -662,7 +810,7 @@ def render_settings_tab(players, totals, rounds):
     c1, c2 = st.columns(2)
     with c1:
         if st.button("Finish Game 🎉", use_container_width=True):
-            st.session_state.game["status"] = "finished"
+            st.session_state.game["state"] = "GAME_COMPLETE"
             save_game_state()
             st.rerun()
             
@@ -674,7 +822,7 @@ def render_settings_tab(players, totals, rounds):
 
 
 # ==========================================
-# 3. FINAL GAME OVER SCREEN
+# 3. GAME OVER SCREEN
 # ==========================================
 def render_final_game_screen():
     game = st.session_state.game
@@ -688,12 +836,12 @@ def render_final_game_screen():
     
     st.markdown("""
         <div class="hero-box">
-            <h1 class="cozy-title" style="font-size: 3rem;">GAME OVER 🎉</h1>
+            <h1 class="cozy-title" style="font-size: 3rem; text-align: center;">GAME OVER 🎉</h1>
             <p class="cozy-subtitle">Congratulations to the winner!</p>
         </div>
     """, unsafe_allow_html=True)
     
-    # Leaderboard Standings
+    # Leaderboard Standings Cards
     st.markdown('<div class="cozy-card">', unsafe_allow_html=True)
     st.subheader("Final Standings")
     
@@ -718,8 +866,14 @@ def render_final_game_screen():
         
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # Share box
-    st.markdown("### 📤 Share Final Results")
+    # Display full final scoreboard table
+    st.markdown("### 📊 Final Scoreboard Matrix")
+    render_scoreboard_tab(players, rounds, totals, leaderboard)
+    
+    st.divider()
+    
+    # Share Standings
+    st.markdown("### 📤 Share Standings")
     summary = format_share_summary(players, totals, rounds)
     st.code(summary, language="text")
     
@@ -739,7 +893,7 @@ def main():
     
     if game is None:
         render_setup_screen()
-    elif game.get("status") == "finished":
+    elif game.get("state") == "GAME_COMPLETE":
         render_final_game_screen()
     else:
         render_game_interface()

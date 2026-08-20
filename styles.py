@@ -39,6 +39,7 @@ h1, h2, h3, .cozy-title {
     font-weight: 500;
     margin-top: -10px;
     margin-bottom: 25px;
+    text-align: center;
 }
 
 /* Cozy Card Container */
@@ -77,6 +78,7 @@ h1, h2, h3, .cozy-title {
     text-align: center;
     position: relative;
     overflow: hidden;
+    margin-top: 15px;
 }
 
 .leader-card::before {
@@ -94,7 +96,7 @@ h1, h2, h3, .cozy-title {
     background: #1a382a;
     border: 1px solid rgba(229, 193, 88, 0.3);
     border-radius: 14px;
-    padding: 14px 18px;
+    padding: 12px 14px;
     text-align: center;
     transition: transform 0.2s ease;
 }
@@ -107,19 +109,22 @@ h1, h2, h3, .cozy-title {
 .player-score-card.is-leader {
     border: 2px solid #e5c158;
     background: linear-gradient(135deg, #223f30 0%, #2b301a 100%);
-    box-shadow: 0 4px 15px rgba(229, 193, 88, 0.2);
+    box-shadow: 0 4px 15px rgba(229, 193, 88, 0.25);
 }
 
 .player-name {
-    font-size: 1rem;
+    font-size: 0.95rem;
     font-weight: 700;
     color: #f4ebd0;
     margin-bottom: 4px;
     letter-spacing: 0.5px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .player-points {
-    font-size: 1.6rem;
+    font-size: 1.4rem;
     font-weight: 800;
     color: #e5c158;
 }
@@ -150,32 +155,41 @@ h1, h2, h3, .cozy-title {
 }
 
 /* Secondary Button style */
-div[data-testid="stButton"] > button[kind="secondary"], div[data-testid="stButton"] > button[data-testid="baseButton-secondary"], button[data-testid="baseButton-secondary"] {
+div[data-testid="stButton"] > button[kind="secondary"], 
+div[data-testid="stButton"] > button[data-testid="baseButton-secondary"], 
+button[data-testid="baseButton-secondary"] {
     background: rgba(244, 235, 208, 0.1) !important;
     color: #f4ebd0 !important;
     border: 1px solid rgba(244, 235, 208, 0.3) !important;
 }
 
-div[data-testid="stButton"] > button[kind="secondary"], div[data-testid="stButton"] > button[data-testid="baseButton-secondary"], button[data-testid="baseButton-secondary"]:hover {
+div[data-testid="stButton"] > button[kind="secondary"]:hover, 
+div[data-testid="stButton"] > button[data-testid="baseButton-secondary"]:hover, 
+button[data-testid="baseButton-secondary"]:hover {
     background: rgba(244, 235, 208, 0.2) !important;
     border-color: #e5c158 !important;
 }
 
-/* Touch +/- Counter Buttons */
-.counter-btn button {
-    padding: 4px 12px !important;
-    font-size: 1.4rem !important;
-    border-radius: 8px !important;
-    height: 42px !important;
-}
-
-/* Input Fields */
-.stTextInput > div > div > input, .stNumberInput > div > div > input {
+/* Touch Input Fields */
+.stTextInput > div > div > input {
     background-color: #11261c !important;
     color: #f4ebd0 !important;
     border: 1px solid rgba(212, 175, 55, 0.3) !important;
     border-radius: 10px !important;
-    font-size: 1rem !important;
+    font-size: 1.2rem !important;
+    text-align: center !important;
+    height: 48px !important;
+}
+
+.stNumberInput > div > div > input {
+    background-color: #11261c !important;
+    color: #e5c158 !important;
+    border: 1px solid rgba(212, 175, 55, 0.45) !important;
+    border-radius: 12px !important;
+    font-size: 1.8rem !important;
+    font-weight: 700 !important;
+    text-align: center !important;
+    height: 56px !important;
 }
 
 .stTextInput > div > div > input:focus, .stNumberInput > div > div > input:focus {
@@ -215,15 +229,21 @@ div[data-testid="stButton"] > button[kind="secondary"], div[data-testid="stButto
     border: 1px solid rgba(229, 193, 88, 0.4) !important;
 }
 
-/* Table Styling */
+/* Table Scroll and Styling */
+.cozy-table-container {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    margin: 16px 0;
+    border-radius: 12px;
+    border: 1px solid rgba(212, 175, 55, 0.3);
+}
+
 .cozy-table {
     width: 100%;
     border-collapse: separate;
     border-spacing: 0;
-    margin: 16px 0;
-    border-radius: 12px;
-    overflow: hidden;
-    border: 1px solid rgba(212, 175, 55, 0.3);
+    min-width: 500px;
 }
 
 .cozy-table th {
@@ -304,6 +324,7 @@ div[data-testid="stButton"] > button[kind="secondary"], div[data-testid="stButto
     letter-spacing: 12px;
     color: #e5c158;
     margin-bottom: 10px;
+    text-align: center;
 }
 </style>
 """

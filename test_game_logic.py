@@ -45,7 +45,7 @@ class TestCallBreakGameLogic(unittest.TestCase):
         self.assertEqual(get_available_tricks(2), 13)
         self.assertEqual(get_available_tricks(3), 13)
         self.assertEqual(get_available_tricks(4), 13)
-        self.assertEqual(get_available_tricks(5), 9)
+        self.assertEqual(get_available_tricks(5), 10)
 
     def test_validate_player_names(self):
         # Valid names
@@ -67,12 +67,20 @@ class TestCallBreakGameLogic(unittest.TestCase):
         valid, _ = validate_calls(calls_valid, 4)
         self.assertTrue(valid)
 
-        calls_invalid_low = {"p1": 0, "p2": 4}
-        valid, msg = validate_calls(calls_invalid_low, 4)
+        calls_valid_zero = {"p1": 0, "p2": 4}
+        valid, _ = validate_calls(calls_valid_zero, 4)
+        self.assertTrue(valid)
+
+        calls_invalid_negative = {"p1": -1, "p2": 4}
+        valid, msg = validate_calls(calls_invalid_negative, 4)
         self.assertFalse(valid)
 
-        calls_invalid_high = {"p1": 14, "p2": 4}
-        valid, msg = validate_calls(calls_invalid_high, 4)
+        calls_invalid_high_4 = {"p1": 14, "p2": 4}
+        valid, msg = validate_calls(calls_invalid_high_4, 4)
+        self.assertFalse(valid)
+
+        calls_invalid_high_5 = {"p1": 11, "p2": 2, "p3": 2, "p4": 2, "p5": 2}
+        valid, msg = validate_calls(calls_invalid_high_5, 5)
         self.assertFalse(valid)
 
     def test_validate_tricks_4_players(self):
@@ -87,14 +95,19 @@ class TestCallBreakGameLogic(unittest.TestCase):
         self.assertFalse(valid)
 
     def test_validate_tricks_5_players(self):
-        # Sum of tricks in 5-player game must equal 9
-        tricks_valid = {"p1": 2, "p2": 2, "p3": 2, "p4": 2, "p5": 1}
+        # Sum of tricks in 5-player game must equal 10
+        tricks_valid = {"p1": 2, "p2": 2, "p3": 2, "p4": 2, "p5": 2}
         valid, _ = validate_tricks(tricks_valid, 5)
         self.assertTrue(valid)
 
-        # Sum = 10 (invalid for 5 players)
-        tricks_invalid = {"p1": 2, "p2": 2, "p3": 2, "p4": 2, "p5": 2}
+        # Sum = 9 (invalid for 5 players)
+        tricks_invalid = {"p1": 2, "p2": 2, "p3": 2, "p4": 2, "p5": 1}
         valid, msg = validate_tricks(tricks_invalid, 5)
+        self.assertFalse(valid)
+
+        # Individual Tricks won = 11 (invalid for 5 players)
+        tricks_invalid_high = {"p1": 11, "p2": 0, "p3": 0, "p4": 0, "p5": 0}
+        valid, msg = validate_tricks(tricks_invalid_high, 5)
         self.assertFalse(valid)
 
     def test_calculate_totals_decimal_precision(self):
