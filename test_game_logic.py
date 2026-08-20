@@ -49,16 +49,16 @@ class TestCallBreakGameLogic(unittest.TestCase):
 
     def test_validate_player_names(self):
         # Valid names
-        valid, msg = validate_player_names(["Swikar", "Rahul", "Aman", "Aryan"])
+        valid, msg = validate_player_names(["Swikar", "Anwar", "Dipesh", "Mukund"])
         self.assertTrue(valid)
 
         # Empty name
-        valid, msg = validate_player_names(["Swikar", "  ", "Aman"])
+        valid, msg = validate_player_names(["Swikar", "  ", "Dipesh"])
         self.assertFalse(valid)
         self.assertIn("empty", msg.lower())
 
         # Duplicate names (case insensitive)
-        valid, msg = validate_player_names(["Swikar", "Rahul", "swikar"])
+        valid, msg = validate_player_names(["Swikar", "Anwar", "swikar"])
         self.assertFalse(valid)
         self.assertIn("duplicate", msg.lower())
 
@@ -144,17 +144,17 @@ class TestCallBreakGameLogic(unittest.TestCase):
     def test_leaderboard_sorting(self):
         players = [
             {"id": "p1", "name": "Swikar"},
-            {"id": "p2", "name": "Rahul"},
-            {"id": "p3", "name": "Aman"}
+            {"id": "p2", "name": "Anwar"},
+            {"id": "p3", "name": "Dipesh"}
         ]
         totals = {"p1": 9.3, "p2": 12.1, "p3": 5.4}
         leaderboard = get_leaderboard(players, totals)
         
-        self.assertEqual(leaderboard[0]["name"], "Rahul")
+        self.assertEqual(leaderboard[0]["name"], "Anwar")
         self.assertEqual(leaderboard[0]["badge"], "👑")
         self.assertEqual(leaderboard[1]["name"], "Swikar")
         self.assertEqual(leaderboard[1]["badge"], "🥈")
-        self.assertEqual(leaderboard[2]["name"], "Aman")
+        self.assertEqual(leaderboard[2]["name"], "Dipesh")
         self.assertEqual(leaderboard[2]["badge"], "🥉")
 
     def test_format_share_summary(self):
